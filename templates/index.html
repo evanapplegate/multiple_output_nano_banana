@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nano Banana Pro — Image Gen</title>
+  <style>
+    :root {
+      --bg: #0f0f0f; --bg-input: #1a1a1a; --bg-cell: #1a1a1a;
+      --bg-save: #222; --bg-save-hover: #2a2a2a;
+      --border: #333; --border-cell: #2a2a2a; --border-focus: #555;
+      --text: #e8e8e8; --text-heading: #fff; --text-sub: #666;
+      --text-muted: #555; --text-save: #aaa;
+      --gen-bg: #fff; --gen-color: #0f0f0f;
+      --spinner-ring: #333; --spinner-top: #aaa;
+      --attach-border: #333; --attach-hover: #666;
+    }
+    [data-theme="light"] {
+      --bg: #f5f5f5; --bg-input: #fff; --bg-cell: #fff;
+      --bg-save: #eee; --bg-save-hover: #ddd;
+      --border: #ccc; --border-cell: #ddd; --border-focus: #999;
+      --text: #222; --text-heading: #000; --text-sub: #888;
+      --text-muted: #999; --text-save: #555;
+      --gen-bg: #222; --gen-color: #fff;
+      --spinner-ring: #ddd; --spinner-top: #666;
+      --attach-border: #bbb; --attach-hover: #999;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px 60px;
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: var(--text-heading);
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      font-size: 0.8rem;
+      color: var(--text-sub);
+      margin-bottom: 32px;
+    }
+
+    .theme-toggle {
+      position: fixed; top: 16px; right: 16px;
+      background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); font-size: 1.1rem; padding: 6px 10px; cursor: pointer;
+      transition: background 0.15s, border-color 0.15s; z-index: 100;
+    }
+    .theme-toggle:hover { border-color: var(--border-focus); }
+
+    .controls {
+      width: 100%;
+      max-width: 720px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    textarea {
+      width: 100%;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 0.95rem;
+      padding: 12px 14px;
+      resize: vertical;
+      min-height: 90px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    textarea:focus { border-color: var(--border-focus); }
+    textarea::placeholder { color: var(--text-muted); }
+
+    .row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    select {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 0.9rem;
+      padding: 10px 14px;
+      outline: none;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    select:focus { border-color: var(--border-focus); }
+
+    button#gen-btn {
+      flex: 1;
+      background: var(--gen-bg);
+      color: var(--gen-color);
+      border: none;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      padding: 10px 24px;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    button#gen-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    button#gen-btn:not(:disabled):hover { opacity: 0.85; }
+
+    /* Results grid */
+    .grid {
+      width: 100%;
+      max-width: 1320px;
+      display: grid;
+      grid-template-columns: repeat(var(--cols, 3), 1fr);
+      gap: 16px;
+      margin-top: 40px;
+    }
+
+    .cell {
+      background: var(--bg-cell);
+      border: 1px solid var(--border-cell);
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .cell-img-wrap {
+      width: 100%;
+      aspect-ratio: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .cell img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      cursor: pointer;
+      transition: opacity 0.2s;
+      display: block;
+    }
+    .cell img:hover { opacity: 0.88; }
+
+    .save-btn {
+      width: 100%;
+      background: var(--bg-save);
+      border: none;
+      border-top: 1px solid var(--border-cell);
+      color: var(--text-save);
+      font-size: 0.78rem;
+      padding: 8px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .save-btn:hover { background: var(--bg-save-hover); color: var(--text-heading); }
+
+    .cell-label {
+      position: absolute;
+      top: 8px;
+      left: 10px;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+
+    .placeholder {
+      color: #333;
+      font-size: 0.8rem;
+      user-select: none;
+    }
+
+    .fail-msg {
+      color: #c0392b;
+      font-size: 0.78rem;
+      text-align: center;
+      padding: 12px;
+    }
+
+    /* Spinner */
+    .spinner {
+      width: 28px;
+      height: 28px;
+      border: 3px solid var(--spinner-ring);
+      border-top-color: var(--spinner-top);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Toast */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: #c0392b;
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      transition: transform 0.25s ease;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    #toast.show { transform: translateX(-50%) translateY(0); }
+
+    /* Attachment area */
+    .attach-zone {
+      border: 1px dashed var(--attach-border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      cursor: pointer;
+      transition: border-color 0.15s;
+      min-height: 46px;
+    }
+    .attach-zone:hover, .attach-zone.drag-over { border-color: var(--attach-hover); }
+    .attach-zone input[type=file] { display: none; }
+
+    .attach-hint {
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      user-select: none;
+    }
+
+    .thumb-wrap {
+      position: relative;
+      width: 48px;
+      height: 48px;
+      border-radius: 5px;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .thumb-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .thumb-remove {
+      position: absolute;
+      top: 1px;
+      right: 1px;
+      background: rgba(0,0,0,0.7);
+      border: none;
+      color: #fff;
+      font-size: 0.65rem;
+      line-height: 1;
+      padding: 2px 4px;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+
+    @media (max-width: 700px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">&#x263D;&#xfe0e;</button>
+
+  <h1>Nano Banana Pro</h1>
+  <p class="subtitle">multi-shot image generation</p>
+
+  <div class="controls">
+    <textarea id="prompt" placeholder="describe the image you want…" autofocus></textarea>
+
+    <!-- Image attachment drop zone -->
+    <div class="attach-zone" id="attach-zone" onclick="document.getElementById('file-input').click()"
+         ondragover="event.preventDefault(); this.classList.add('drag-over')"
+         ondragleave="this.classList.remove('drag-over')"
+         ondrop="handleDrop(event)">
+      <input type="file" id="file-input" accept="image/*" multiple onchange="handleFiles(this.files)">
+      <span class="attach-hint" id="attach-hint">+ attach images (click or drag &amp; drop)</span>
+    </div>
+
+    <div class="row">
+      <select id="model">
+        <option value="gemini-3-pro-image-preview" selected>Nano Banana Pro</option>
+        <option value="gemini-3.1-flash-image-preview">Nano Banana 2</option>
+        <option value="gemini-2.5-flash-image">Nano Banana</option>
+      </select>
+      <select id="resolution">
+        <option value="1K">1K</option>
+        <option value="2K">2K</option>
+        <option value="4K">4K</option>
+      </select>
+      <select id="shots">
+        <option value="1">1 shot</option>
+        <option value="2">2 shots</option>
+        <option value="3" selected>3 shots</option>
+        <option value="4">4 shots</option>
+        <option value="6">6 shots</option>
+        <option value="9">9 shots</option>
+      </select>
+      <select id="aspect-ratio">
+        <option value="">Auto</option>
+        <option value="1:1">1:1 — Square</option>
+        <option value="4:3">4:3 — Classic</option>
+        <option value="3:2">3:2 — Photo</option>
+        <option value="16:9">16:9 — Widescreen</option>
+        <option value="21:9">21:9 — Ultrawide</option>
+        <option value="3:4">3:4 — Portrait</option>
+        <option value="2:3">2:3 — Tall Portrait</option>
+        <option value="9:16">9:16 — Vertical</option>
+        <option value="4:5">4:5 — Social</option>
+        <option value="5:4">5:4</option>
+        <option value="4:1">4:1 — Banner</option>
+        <option value="1:4">1:4 — Tall Banner</option>
+        <option value="8:1">8:1 — Strip</option>
+        <option value="1:8">1:8 — Tall Strip</option>
+      </select>
+      <button id="gen-btn" onclick="generate()">Generate</button>
+    </div>
+  </div>
+
+  <div class="grid" id="grid" style="--cols:3">
+    <div class="cell"><span class="placeholder">shot 1</span></div>
+    <div class="cell"><span class="placeholder">shot 2</span></div>
+    <div class="cell"><span class="placeholder">shot 3</span></div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script>
+    // --- Theme ---
+    function toggleTheme() {
+      const html = document.documentElement;
+      const next = html.getAttribute("data-theme") === "light" ? "" : "light";
+      if (next) html.setAttribute("data-theme", "light");
+      else html.removeAttribute("data-theme");
+      document.getElementById("theme-toggle").innerHTML = next ? "&#x263D;&#xfe0e;" : "&#x2600;&#xfe0e;";
+      localStorage.setItem("theme-og", next || "dark");
+    }
+    (function() {
+      const saved = localStorage.getItem("theme-og");
+      if (saved === "dark") {
+        document.documentElement.removeAttribute("data-theme");
+        document.getElementById("theme-toggle").innerHTML = "&#x2600;&#xfe0e;";
+      }
+    })();
+
+    const grid = document.getElementById("grid");
+    const btn  = document.getElementById("gen-btn");
+
+    // --- Attachments ---
+    let attachments = []; // [{mimeType, data, objectURL}]
+
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          // result is "data:image/png;base64,XXXX" — strip the prefix
+          const b64 = reader.result.split(",")[1];
+          resolve({ mimeType: file.type, data: b64, objectURL: URL.createObjectURL(file) });
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function handleFiles(files) {
+      for (const file of files) {
+        if (!file.type.startsWith("image/")) continue;
+        const att = await fileToBase64(file);
+        attachments.push(att);
+      }
+      renderThumbs();
+    }
+
+    function handleDrop(e) {
+      e.preventDefault();
+      document.getElementById("attach-zone").classList.remove("drag-over");
+      handleFiles(e.dataTransfer.files);
+    }
+
+    function removeAttachment(idx) {
+      URL.revokeObjectURL(attachments[idx].objectURL);
+      attachments.splice(idx, 1);
+      renderThumbs();
+    }
+
+    function renderThumbs() {
+      const zone = document.getElementById("attach-zone");
+      const hint = document.getElementById("attach-hint");
+      // remove old thumbs
+      zone.querySelectorAll(".thumb-wrap").forEach(el => el.remove());
+      hint.style.display = attachments.length ? "none" : "";
+      attachments.forEach((att, i) => {
+        const wrap = document.createElement("div");
+        wrap.className = "thumb-wrap";
+        wrap.innerHTML = `<img src="${att.objectURL}">
+          <button class="thumb-remove" onclick="event.stopPropagation(); removeAttachment(${i})">✕</button>`;
+        zone.appendChild(wrap);
+      });
+    }
+
+    // --- UI helpers ---
+    function getShots() { return parseInt(document.getElementById("shots").value); }
+    function gridCols(n) { return n <= 3 ? n : n <= 4 ? 2 : 3; }
+
+    function setLoading(yes) {
+      btn.disabled = yes;
+      btn.textContent = yes ? "Generating…" : "Generate";
+      if (yes) {
+        const n = getShots();
+        grid.style.setProperty("--cols", gridCols(n));
+        grid.innerHTML = Array.from({length: n}, (_, i) => `
+          <div class="cell">
+            <span class="cell-label">shot ${i+1}</span>
+            <div class="spinner"></div>
+          </div>`).join("");
+      }
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById("toast");
+      t.textContent = msg;
+      t.classList.add("show");
+      setTimeout(() => t.classList.remove("show"), 3500);
+    }
+
+    function renderImages(images) {
+      grid.style.setProperty("--cols", gridCols(images.length));
+      grid.innerHTML = images.map((src, i) => {
+        if (!src) {
+          return `<div class="cell">
+            <span class="cell-label">shot ${i+1}</span>
+            <span class="fail-msg">generation failed</span>
+          </div>`;
+        }
+        return `<div class="cell">
+          <span class="cell-label">shot ${i+1}</span>
+          <div class="cell-img-wrap">
+            <img src="${src}" alt="shot ${i+1}" onclick="window.open('${src}','_blank')" title="click to open full size">
+          </div>
+          <button class="save-btn" onclick="saveImage('${src}', ${i+1})">save image</button>
+        </div>`;
+      }).join("");
+    }
+
+    // --- Generate ---
+    async function generate() {
+      const prompt      = document.getElementById("prompt").value.trim();
+      const resolution  = document.getElementById("resolution").value;
+      const aspectRatio = document.getElementById("aspect-ratio").value;
+      const shots       = getShots();
+
+      if (!prompt) { showToast("enter a prompt first"); return; }
+
+      setLoading(true);
+      try {
+        const payload = {
+          prompt,
+          model: document.getElementById("model").value,
+          resolution,
+          aspectRatio,
+          shots,
+          attachments: attachments.map(a => ({ mimeType: a.mimeType, data: a.data })),
+        };
+        const res = await fetch("/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) { showToast(data.error || "server error"); return; }
+        renderImages(data.images);
+      } catch (e) {
+        showToast("network error — is the server running?");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    function saveImage(src, n) {
+      const a = document.createElement("a");
+      a.href = src;
+      a.download = `shot-${n}-${Date.now()}.png`;
+      a.click();
+    }
+
+    document.getElementById("prompt").addEventListener("keydown", e => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) generate();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>High Throughput Nano Banana</title>
+  <style>
+    :root {
+      --bg: #0f0f0f; --bg-input: #1a1a1a; --bg-cell: #1a1a1a; --bg-group: #161616;
+      --bg-save: #222; --bg-save-hover: #2a2a2a; --bg-bar: #222; --bg-load: #222; --bg-load-hover: #2a2a2a;
+      --border: #333; --border-cell: #2a2a2a; --border-focus: #555;
+      --text: #e8e8e8; --text-heading: #fff; --text-sub: #666; --text-label: #777;
+      --text-muted: #555; --text-save: #aaa; --text-progress: #888; --text-group: #999;
+      --text-style: #666; --text-pending: #333;
+      --bar-fill: #fff; --spinner-ring: #333; --spinner-top: #aaa;
+      --gen-bg: #fff; --gen-color: #0f0f0f;
+      --add-border: #333; --add-color: #666; --add-hover-border: #555; --add-hover-color: #aaa;
+      --remove-color: #555;
+    }
+    [data-theme="light"] {
+      --bg: #f5f5f5; --bg-input: #fff; --bg-cell: #fff; --bg-group: #eaeaea;
+      --bg-save: #eee; --bg-save-hover: #ddd; --bg-bar: #ddd; --bg-load: #eee; --bg-load-hover: #ddd;
+      --border: #ccc; --border-cell: #ddd; --border-focus: #999;
+      --text: #222; --text-heading: #000; --text-sub: #888; --text-label: #666;
+      --text-muted: #999; --text-save: #555; --text-progress: #666; --text-group: #555;
+      --text-style: #777; --text-pending: #ccc;
+      --bar-fill: #333; --spinner-ring: #ddd; --spinner-top: #666;
+      --gen-bg: #222; --gen-color: #fff;
+      --add-border: #bbb; --add-color: #888; --add-hover-border: #999; --add-hover-color: #555;
+      --remove-color: #999;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px 60px;
+    }
+
+    h1 { font-size: 1.4rem; font-weight: 600; letter-spacing: 0.04em; color: var(--text-heading); margin-bottom: 8px; }
+    .subtitle { font-size: 0.8rem; color: var(--text-sub); margin-bottom: 32px; }
+
+    .theme-toggle {
+      position: fixed; top: 16px; right: 16px;
+      background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); font-size: 1.1rem; padding: 6px 10px; cursor: pointer;
+      transition: background 0.15s, border-color 0.15s; z-index: 100;
+    }
+    .theme-toggle:hover { border-color: var(--border-focus); }
+
+    .controls { width: 100%; max-width: 720px; display: flex; flex-direction: column; gap: 16px; }
+
+    label.section-label { font-size: 0.75rem; color: var(--text-label); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: -8px; }
+
+    /* Prompt inputs */
+    .prompt-list { display: flex; flex-direction: column; gap: 6px; }
+    .prompt-row { display: flex; gap: 6px; align-items: center; }
+    .prompt-row input {
+      flex: 1;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 0.95rem;
+      padding: 10px 14px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .prompt-row input:focus { border-color: var(--border-focus); }
+    .prompt-row input::placeholder { color: var(--text-muted); }
+
+    .remove-prompt {
+      background: none; border: none; color: var(--remove-color); font-size: 1.1rem;
+      cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: color 0.15s;
+    }
+    .remove-prompt:hover { color: #c0392b; }
+
+    .add-prompt-btn {
+      background: none; border: 1px dashed var(--add-border); border-radius: 8px;
+      color: var(--add-color); font-size: 0.85rem; padding: 8px; cursor: pointer;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .add-prompt-btn:hover { border-color: var(--add-hover-border); color: var(--add-hover-color); }
+
+    /* Style dir */
+    .style-dir-row { display: flex; gap: 8px; align-items: center; }
+    .style-dir-row input {
+      flex: 1;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 0.9rem;
+      padding: 10px 14px;
+      outline: none;
+    }
+    .style-dir-row input:focus { border-color: var(--border-focus); }
+    .load-btn {
+      background: var(--bg-load); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text-save); font-size: 0.85rem; padding: 10px 16px; cursor: pointer;
+      transition: background 0.15s, color 0.15s; white-space: nowrap;
+    }
+    .load-btn:hover { background: var(--bg-load-hover); color: var(--text-heading); }
+
+    .style-thumbs {
+      display: flex; flex-wrap: wrap; gap: 8px; min-height: 0;
+    }
+    .style-thumb {
+      width: 64px; display: flex; flex-direction: column; align-items: center; gap: 4px;
+      position: relative;
+    }
+    .style-thumb img {
+      width: 64px; height: 64px; object-fit: cover; border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+    .style-thumb span {
+      font-size: 0.6rem; color: var(--text-style); text-align: center;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 64px;
+    }
+    .style-thumb .remove-style {
+      position: absolute; top: -4px; right: -4px;
+      background: #c0392b; border: none; color: #fff; font-size: 0.6rem;
+      width: 16px; height: 16px; border-radius: 50%; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; line-height: 1;
+    }
+    .style-thumb .remove-style:hover { background: #e74c3c; }
+
+    .upload-zone {
+      border: 1px dashed var(--add-border); border-radius: 8px;
+      padding: 8px 14px; cursor: pointer;
+      transition: border-color 0.15s; display: flex; align-items: center; gap: 8px;
+    }
+    .upload-zone:hover, .upload-zone.drag-over { border-color: var(--border-focus); }
+    .upload-zone input[type=file] { display: none; }
+    .upload-hint { color: var(--add-color); font-size: 0.82rem; user-select: none; }
+
+    /* Settings row */
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+    select {
+      background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); font-size: 0.9rem; padding: 10px 14px; outline: none; cursor: pointer;
+    }
+    select:focus { border-color: var(--border-focus); }
+
+    .gen-btn {
+      flex: 1; background: var(--gen-bg); color: var(--gen-color); border: none; border-radius: 8px;
+      font-size: 0.95rem; font-weight: 600; padding: 10px 24px; cursor: pointer;
+      transition: opacity 0.15s; min-width: 120px;
+    }
+    .gen-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    .gen-btn:not(:disabled):hover { opacity: 0.85; }
+
+    .stop-btn {
+      background: #c0392b; color: #fff; border: none; border-radius: 8px;
+      font-size: 0.9rem; font-weight: 600; padding: 10px 20px; cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .stop-btn:hover { opacity: 0.85; }
+    .stop-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    /* Progress */
+    .progress-wrap { display: none; width: 100%; max-width: 720px; margin-top: 16px; }
+    .progress-text { font-size: 0.8rem; color: var(--text-progress); margin-bottom: 6px; }
+    .progress-bar { height: 4px; background: var(--bg-bar); border-radius: 2px; overflow: hidden; }
+    .progress-fill { height: 100%; background: var(--bar-fill); width: 0%; transition: width 0.3s; }
+
+    /* Results */
+    .results { width: 100%; max-width: 1400px; margin-top: 32px; }
+
+    .prompt-group { margin-bottom: 32px; }
+    .prompt-group-title {
+      font-size: 0.85rem; color: var(--text-group); margin-bottom: 12px; padding: 8px 12px;
+      background: var(--bg-group); border-radius: 6px; font-style: italic;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    .style-row { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 10px; }
+    .style-row-label {
+      width: 80px; flex-shrink: 0; display: flex; flex-direction: column;
+      align-items: center; gap: 4px; padding-top: 4px;
+    }
+    .style-row-label img {
+      width: 48px; height: 48px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border);
+    }
+    .style-row-label span { font-size: 0.6rem; color: var(--text-style); text-align: center; word-break: break-all; }
+
+    .shots-grid {
+      display: grid;
+      grid-template-columns: repeat(var(--cols, 3), 1fr);
+      gap: 10px; flex: 1;
+    }
+
+    .cell {
+      background: var(--bg-cell); border: 1px solid var(--border-cell); border-radius: 10px;
+      display: flex; flex-direction: column; align-items: center; overflow: hidden; position: relative;
+    }
+    .cell-img-wrap {
+      width: 100%; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; overflow: hidden;
+    }
+    .cell img {
+      width: 100%; height: 100%; object-fit: contain; cursor: pointer;
+      transition: opacity 0.2s; display: block;
+    }
+    .cell img:hover { opacity: 0.88; }
+
+    .save-btn {
+      width: 100%; background: var(--bg-save); border: none; border-top: 1px solid var(--border-cell);
+      color: var(--text-save); font-size: 0.78rem; padding: 8px; cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .save-btn:hover { background: var(--bg-save-hover); color: var(--text-heading); }
+
+    .cell-label {
+      position: absolute; top: 8px; left: 10px;
+      font-size: 0.7rem; color: var(--text-muted); pointer-events: none;
+    }
+
+    .fail-msg { color: #c0392b; font-size: 0.78rem; text-align: center; padding: 12px; }
+
+    .spinner {
+      width: 28px; height: 28px; border: 3px solid var(--spinner-ring); border-top-color: var(--spinner-top);
+      border-radius: 50%; animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #toast {
+      position: fixed; bottom: 24px; left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: #c0392b; color: #fff; padding: 10px 20px; border-radius: 8px;
+      font-size: 0.85rem; transition: transform 0.25s ease; pointer-events: none; white-space: nowrap;
+    }
+    #toast.show { transform: translateX(-50%) translateY(0); }
+
+    @media (max-width: 700px) {
+      .style-row { flex-direction: column; }
+      .style-row-label { width: 100%; flex-direction: row; gap: 8px; }
+      .shots-grid { grid-template-columns: 1fr !important; }
+    }
+  </style>
+</head>
+<body>
+
+  <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">&#x263D;&#xfe0e;</button>
+
+  <h1>High Throughput Nano Banana</h1>
+  <p class="subtitle">permutation image generation</p>
+
+  <div class="controls">
+    <label class="section-label">Prompts</label>
+    <div class="prompt-list" id="prompt-list">
+      <div class="prompt-row">
+        <input type="text" placeholder="describe the image you want...">
+        <button class="remove-prompt" onclick="removePrompt(this)" title="remove">&#x2715;</button>
+      </div>
+    </div>
+    <button class="add-prompt-btn" onclick="addPrompt()">+ Add Prompt</button>
+
+    <label class="section-label">Style Images</label>
+    <div class="style-dir-row">
+      <input type="text" id="style-dir" placeholder="path to style images directory" value="styles/">
+      <button class="load-btn" onclick="loadStyles()">Load Dir</button>
+    </div>
+    <div class="upload-zone" id="upload-zone" onclick="document.getElementById('style-file-input').click()"
+         ondragover="event.preventDefault(); this.classList.add('drag-over')"
+         ondragleave="this.classList.remove('drag-over')"
+         ondrop="handleStyleDrop(event)">
+      <input type="file" id="style-file-input" accept="image/*" multiple onchange="handleStyleUpload(this.files)">
+      <span class="upload-hint">+ upload images (click or drag & drop)</span>
+    </div>
+    <div class="style-thumbs" id="style-thumbs"></div>
+
+    <label class="section-label">Settings</label>
+    <div class="row">
+      <select id="model">
+        <option value="gemini-3-pro-image-preview" selected>Nano Banana Pro</option>
+        <option value="gemini-3.1-flash-image-preview">Nano Banana 2</option>
+        <option value="gemini-2.5-flash-image">Nano Banana</option>
+      </select>
+      <select id="resolution">
+        <option value="1K">1K</option>
+        <option value="2K">2K</option>
+        <option value="4K">4K</option>
+      </select>
+      <select id="shots">
+        <option value="1">1 shot</option>
+        <option value="2">2 shots</option>
+        <option value="3" selected>3 shots</option>
+        <option value="4">4 shots</option>
+        <option value="6">6 shots</option>
+        <option value="9">9 shots</option>
+      </select>
+      <select id="aspect-ratio">
+        <option value="">Auto</option>
+        <option value="1:1">1:1 Square</option>
+        <option value="4:3">4:3 Classic</option>
+        <option value="3:2">3:2 Photo</option>
+        <option value="16:9">16:9 Widescreen</option>
+        <option value="21:9">21:9 Ultrawide</option>
+        <option value="3:4">3:4 Portrait</option>
+        <option value="2:3">2:3 Tall Portrait</option>
+        <option value="9:16">9:16 Vertical</option>
+        <option value="4:5">4:5 Social</option>
+        <option value="5:4">5:4</option>
+        <option value="4:1">4:1 Banner</option>
+        <option value="1:4">1:4 Tall Banner</option>
+        <option value="8:1">8:1 Strip</option>
+        <option value="1:8">1:8 Tall Strip</option>
+      </select>
+      <button class="gen-btn" id="gen-btn" onclick="generateAll()">Generate</button>
+      <button class="stop-btn" id="stop-btn" onclick="stopGeneration()" style="display:none">Stop</button>
+    </div>
+  </div>
+
+  <div class="progress-wrap" id="progress-wrap">
+    <div class="progress-text" id="progress-text"></div>
+    <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+  </div>
+
+  <div class="results" id="results"></div>
+
+  <div id="toast"></div>
+
+  <script>
+    // --- Theme ---
+    function toggleTheme() {
+      const html = document.documentElement;
+      const next = html.getAttribute("data-theme") === "light" ? "" : "light";
+      if (next) html.setAttribute("data-theme", "light");
+      else html.removeAttribute("data-theme");
+      document.getElementById("theme-toggle").innerHTML = next ? "&#x263D;&#xfe0e;" : "&#x2600;&#xfe0e;";
+      localStorage.setItem("theme", next || "dark");
+    }
+    (function() {
+      const saved = localStorage.getItem("theme");
+      if (saved === "dark") {
+        document.documentElement.removeAttribute("data-theme");
+        document.getElementById("theme-toggle").innerHTML = "&#x2600;&#xfe0e;";
+      }
+    })();
+
+    let styles = [];      // [{filename, path?, thumbUrl, mimeType?, data?}, ...]
+    let stopped = false;
+    let abortController = null;
+    let running = false;
+
+    // --- Prompt management ---
+
+    function addPrompt() {
+      const list = document.getElementById("prompt-list");
+      const row = document.createElement("div");
+      row.className = "prompt-row";
+      row.innerHTML = `<input type="text" placeholder="describe the image you want...">
+        <button class="remove-prompt" onclick="removePrompt(this)" title="remove">&#x2715;</button>`;
+      list.appendChild(row);
+      row.querySelector("input").focus();
+      updateRemoveButtons();
+    }
+
+    function removePrompt(btn) {
+      const list = document.getElementById("prompt-list");
+      if (list.children.length <= 1) return;
+      btn.closest(".prompt-row").remove();
+      updateRemoveButtons();
+    }
+
+    function updateRemoveButtons() {
+      const rows = document.querySelectorAll(".prompt-row");
+      rows.forEach(r => {
+        r.querySelector(".remove-prompt").style.visibility = rows.length <= 1 ? "hidden" : "visible";
+      });
+    }
+
+    function getPrompts() {
+      return Array.from(document.querySelectorAll(".prompt-row input"))
+        .map(el => el.value.trim())
+        .filter(v => v.length > 0);
+    }
+
+    updateRemoveButtons();
+
+    // --- Style loading ---
+
+    async function loadStyles() {
+      const dir = document.getElementById("style-dir").value.trim();
+      if (!dir) { showToast("enter a directory path"); return; }
+      try {
+        const res = await fetch("/list-styles?dir=" + encodeURIComponent(dir));
+        const data = await res.json();
+        if (!res.ok) { showToast(data.error || "failed to load"); return; }
+        for (const img of data.images) {
+          styles.push({ filename: img.filename, path: img.path, thumbUrl: "/style-thumb?path=" + encodeURIComponent(img.path) });
+        }
+        renderStyleThumbs();
+        if (data.images.length === 0) showToast("no images found in directory");
+      } catch (e) {
+        showToast("network error");
+      }
+    }
+
+    function handleStyleUpload(files) {
+      for (const file of files) {
+        if (!file.type.startsWith("image/")) continue;
+        const reader = new FileReader();
+        reader.onload = () => {
+          const b64 = reader.result.split(",")[1];
+          styles.push({
+            filename: file.name,
+            mimeType: file.type,
+            data: b64,
+            thumbUrl: URL.createObjectURL(file),
+          });
+          renderStyleThumbs();
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+
+    function handleStyleDrop(e) {
+      e.preventDefault();
+      document.getElementById("upload-zone").classList.remove("drag-over");
+      handleStyleUpload(e.dataTransfer.files);
+    }
+
+    function removeStyle(idx) {
+      styles.splice(idx, 1);
+      renderStyleThumbs();
+    }
+
+    function renderStyleThumbs() {
+      const container = document.getElementById("style-thumbs");
+      container.innerHTML = styles.map((s, i) =>
+        `<div class="style-thumb">
+          <button class="remove-style" onclick="removeStyle(${i})" title="remove">&#x2715;</button>
+          <img src="${s.thumbUrl}" alt="${s.filename}">
+          <span title="${s.filename}">${s.filename}</span>
+        </div>`
+      ).join("");
+    }
+
+    // --- Generation ---
+
+    async function generateAll() {
+      const prompts = getPrompts();
+      if (prompts.length === 0) { showToast("enter at least one prompt"); return; }
+      if (styles.length === 0) { showToast("load a style directory or upload images first"); return; }
+
+      const resolution = document.getElementById("resolution").value;
+      const aspectRatio = document.getElementById("aspect-ratio").value;
+      const shots = parseInt(document.getElementById("shots").value);
+      const total = prompts.length * styles.length;
+
+      running = true;
+      stopped = false;
+      document.getElementById("gen-btn").disabled = true;
+      document.getElementById("gen-btn").textContent = "Generating...";
+      document.getElementById("stop-btn").style.display = "";
+      document.getElementById("stop-btn").disabled = false;
+
+      // Build result scaffold
+      const results = document.getElementById("results");
+      results.innerHTML = "";
+      for (let pi = 0; pi < prompts.length; pi++) {
+        const group = document.createElement("div");
+        group.className = "prompt-group";
+        group.id = `pg-${pi}`;
+        group.innerHTML = `<div class="prompt-group-title">${escHtml(prompts[pi])}</div>`;
+        for (let si = 0; si < styles.length; si++) {
+          const row = document.createElement("div");
+          row.className = "style-row";
+          row.id = `sr-${pi}-${si}`;
+          row.innerHTML = `
+            <div class="style-row-label">
+              <img src="${styles[si].thumbUrl}">
+              <span>${styles[si].filename}</span>
+            </div>
+            <div class="shots-grid" style="--cols:${gridCols(shots)}">
+              ${Array.from({length: shots}, (_, i) => `
+                <div class="cell"><span class="cell-label">shot ${i+1}</span><span style="color:var(--text-pending);font-size:0.8rem">pending</span></div>
+              `).join("")}
+            </div>`;
+          group.appendChild(row);
+        }
+        results.appendChild(group);
+      }
+
+      showProgress(0, total);
+
+      let taskNum = 0;
+      for (let pi = 0; pi < prompts.length; pi++) {
+        for (let si = 0; si < styles.length; si++) {
+          if (stopped) break;
+          taskNum++;
+          updateProgress(pi + 1, prompts.length, si + 1, styles.length, taskNum, total);
+
+          // Show spinners for current task
+          setTaskLoading(pi, si, shots);
+
+          try {
+            abortController = new AbortController();
+            const res = await fetch("/generate", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                prompt: prompts[pi],
+                stylePath: styles[si].path || "",
+                styleData: styles[si].data ? { mimeType: styles[si].mimeType, data: styles[si].data } : null,
+                model: document.getElementById("model").value,
+                resolution,
+                aspectRatio,
+                shots,
+              }),
+              signal: abortController.signal,
+            });
+            const data = await res.json();
+            if (!res.ok) {
+              renderTaskError(pi, si, shots, data.error || "server error");
+            } else {
+              renderTaskResult(pi, si, data.images, prompts[pi], styles[si].filename);
+            }
+          } catch (e) {
+            if (stopped) {
+              renderTaskError(pi, si, shots, "stopped");
+            } else {
+              renderTaskError(pi, si, shots, "network error");
+            }
+          }
+        }
+        if (stopped) break;
+      }
+
+      running = false;
+      abortController = null;
+      document.getElementById("gen-btn").disabled = false;
+      document.getElementById("gen-btn").textContent = "Generate";
+      document.getElementById("stop-btn").style.display = "none";
+      if (!stopped) {
+        document.getElementById("progress-text").textContent = `Done -- ${total} tasks completed`;
+      } else {
+        document.getElementById("progress-text").textContent = `Stopped at task ${taskNum}/${total}`;
+      }
+    }
+
+    function stopGeneration() {
+      stopped = true;
+      document.getElementById("stop-btn").disabled = true;
+      if (abortController) abortController.abort();
+    }
+
+    // --- Rendering helpers ---
+
+    function gridCols(n) { return n <= 3 ? n : n <= 4 ? 2 : 3; }
+
+    function setTaskLoading(pi, si, shots) {
+      const row = document.getElementById(`sr-${pi}-${si}`);
+      if (!row) return;
+      const grid = row.querySelector(".shots-grid");
+      grid.innerHTML = Array.from({length: shots}, (_, i) =>
+        `<div class="cell"><span class="cell-label">shot ${i+1}</span><div class="spinner"></div></div>`
+      ).join("");
+      row.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    function renderTaskResult(pi, si, images, prompt, styleName) {
+      const row = document.getElementById(`sr-${pi}-${si}`);
+      if (!row) return;
+      const grid = row.querySelector(".shots-grid");
+      grid.style.setProperty("--cols", gridCols(images.length));
+      grid.innerHTML = images.map((src, i) => {
+        if (!src) {
+          return `<div class="cell"><span class="cell-label">shot ${i+1}</span><span class="fail-msg">generation failed</span></div>`;
+        }
+        const safeId = `img-${pi}-${si}-${i}`;
+        return `<div class="cell">
+          <span class="cell-label">shot ${i+1}</span>
+          <div class="cell-img-wrap">
+            <img id="${safeId}" src="${src}" alt="shot ${i+1}" onclick="window.open(this.src,'_blank')" title="click to open full size">
+          </div>
+          <button class="save-btn" onclick="saveImage('${safeId}', '${escAttr(styleName)}', ${i+1})">save image</button>
+        </div>`;
+      }).join("");
+    }
+
+    function renderTaskError(pi, si, shots, msg) {
+      const row = document.getElementById(`sr-${pi}-${si}`);
+      if (!row) return;
+      const grid = row.querySelector(".shots-grid");
+      grid.innerHTML = Array.from({length: shots}, (_, i) =>
+        `<div class="cell"><span class="cell-label">shot ${i+1}</span><span class="fail-msg">${escHtml(msg)}</span></div>`
+      ).join("");
+    }
+
+    // --- Progress ---
+
+    function showProgress(current, total) {
+      const wrap = document.getElementById("progress-wrap");
+      wrap.style.display = "block";
+      updateProgressBar(current, total);
+    }
+
+    function updateProgress(pi, pTotal, si, sTotal, taskNum, total) {
+      document.getElementById("progress-text").textContent =
+        `Prompt ${pi}/${pTotal} \u00d7 Style ${si}/${sTotal} (task ${taskNum}/${total})`;
+      updateProgressBar(taskNum - 1, total);
+    }
+
+    function updateProgressBar(current, total) {
+      const pct = total > 0 ? (current / total) * 100 : 0;
+      document.getElementById("progress-fill").style.width = pct + "%";
+    }
+
+    // --- Utilities ---
+
+    function showToast(msg) {
+      const t = document.getElementById("toast");
+      t.textContent = msg;
+      t.classList.add("show");
+      setTimeout(() => t.classList.remove("show"), 3500);
+    }
+
+    function saveImage(imgId, styleName, shotNum) {
+      const img = document.getElementById(imgId);
+      if (!img) return;
+      const a = document.createElement("a");
+      a.href = img.src;
+      a.download = `${styleName}-shot${shotNum}-${Date.now()}.png`;
+      a.click();
+    }
+
+    function escHtml(s) {
+      const d = document.createElement("div");
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    function escAttr(s) {
+      return s.replace(/'/g, "\\'").replace(/"/g, "&quot;");
+    }
+  </script>
+</body>
+</html>
