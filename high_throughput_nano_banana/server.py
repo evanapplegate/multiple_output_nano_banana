@@ -1,3 +1,4 @@
+from __future__ import annotations
 import os
 import base64
 import mimetypes
@@ -11,11 +12,22 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 app = Flask(__name__)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 DEFAULT_MODEL = "gemini-3-pro-image-preview"
-VALID_MODELS = {"gemini-3-pro-image-preview", "gemini-3.1-flash-image-preview", "gemini-2.5-flash-image"}
+GEMINI_VALID_MODELS = {"gemini-3-pro-image-preview", "gemini-3.1-flash-image-preview", "gemini-2.5-flash-image"}
+OPENAI_VALID_MODELS = {"gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2", "gpt-image-1", "gpt-image-1-mini"}
 API_URL_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent"
+OPENAI_GEN_URL = "https://api.openai.com/v1/images/generations"
+OPENAI_EDIT_URL = "https://api.openai.com/v1/images/edits"
 VALID_RESOLUTIONS = {"1K", "2K", "4K"}
-VALID_ASPECT_RATIOS = {"1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9"}
+VALID_ASPECT_RATIOS = {"1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"}
+VALID_OPENAI_SIZES = {
+    "auto", "1024x1024", "1024x1536", "1536x1024",
+    # gpt-image-2 and 2.5 only
+    "1440x480", "480x1440",
+    "3072x1024", "1024x3072",
+    "3840x1280", "1280x3840",
+}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 
 
@@ -62,6 +74,47 @@ def call_gemini(prompt: str, resolution: str, aspect_ratio: str, attachments: li
         return None
 
 
+def aspect_to_openai_size(aspect_ratio: str) -> str:
+    if aspect_ratio in {"2:3", "3:4", "9:16", "4:5"}:
+        return "1024x1536"
+    if aspect_ratio in {"3:2", "4:3", "16:9", "21:9", "5:4"}:
+        return "1536x1024"
+    return "1024x1024"
+
+
+def call_openai(prompt: str, size: str, aspect_ratio: str, attachments: list, model: str) -> str | None:
+    if size == "auto" or not size:
+        size = aspect_to_openai_size(aspect_ratio)
+    try:
+        if attachments:
+            files = []
+            for i, att in enumerate(attachments):
+                ext = (att["mimeType"].split("/")[-1] or "png").split("+")[0]
+                files.append(("image[]", (f"img{i}.{ext}", base64.b64decode(att["data"]), att["mimeType"])))
+            resp = requests.post(
+                OPENAI_EDIT_URL,
+                headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+                files=files,
+                data={"prompt": prompt, "model": model, "n": "1", "size": size},
+                timeout=300,
+            )
+        else:
+            resp = requests.post(
+                OPENAI_GEN_URL,
+                headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
+                json={"prompt": prompt, "model": model, "n": 1, "size": size},
+                timeout=300,
+            )
+        print(f"[OpenAI] {model} -> {resp.status_code}", flush=True)
+        if resp.status_code != 200:
+            print(f"[OpenAI] ERROR body: {resp.text[:500]}", flush=True)
+            return None
+        return f"data:image/png;base64,{resp.json()['data'][0]['b64_json']}"
+    except Exception as e:
+        print(f"[OpenAI] EXCEPTION: {e}", flush=True)
+        return None
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -98,22 +151,27 @@ def style_thumb():
 
 @app.route("/generate", methods=["POST"])
 def generate():
-    if not GEMINI_API_KEY:
-        return jsonify({"error": "GEMINI_API_KEY not set in .env"}), 500
-
     body = request.get_json(silent=True) or {}
     prompt = (body.get("prompt") or "").strip()
     model = (body.get("model") or DEFAULT_MODEL).strip()
     resolution = (body.get("resolution") or "1K").upper()
+    openai_size = (body.get("openaiSize") or "auto").strip()
     aspect_ratio = (body.get("aspectRatio") or "").strip()
     style_path = (body.get("stylePath") or "").strip()
 
     if not prompt:
         return jsonify({"error": "prompt is required"}), 400
-    if model not in VALID_MODELS:
-        return jsonify({"error": f"model must be one of {sorted(VALID_MODELS)}"}), 400
+    if model not in GEMINI_VALID_MODELS | OPENAI_VALID_MODELS:
+        return jsonify({"error": f"model must be one of {sorted(GEMINI_VALID_MODELS | OPENAI_VALID_MODELS)}"}), 400
+    is_openai = model in OPENAI_VALID_MODELS
+    if is_openai and not OPENAI_API_KEY:
+        return jsonify({"error": "OPENAI_API_KEY not set in .env"}), 500
+    if not is_openai and not GEMINI_API_KEY:
+        return jsonify({"error": "GEMINI_API_KEY not set in .env"}), 500
     if resolution not in VALID_RESOLUTIONS:
         return jsonify({"error": f"resolution must be one of {VALID_RESOLUTIONS}"}), 400
+    if openai_size not in VALID_OPENAI_SIZES:
+        return jsonify({"error": f"openaiSize must be one of {sorted(VALID_OPENAI_SIZES)}"}), 400
     if aspect_ratio and aspect_ratio not in VALID_ASPECT_RATIOS:
         return jsonify({"error": f"aspectRatio must be one of {sorted(VALID_ASPECT_RATIOS)}"}), 400
 
@@ -133,9 +191,15 @@ def generate():
         mime = mimetypes.guess_type(style_path)[0] or "image/png"
         attachments.append({"mimeType": mime, "data": img_data})
 
+    if is_openai:
+        call = lambda: call_openai(prompt, openai_size, aspect_ratio, attachments, model)
+    else:
+        call = lambda: call_gemini(prompt, resolution, aspect_ratio, attachments, model)
+
     images = [None] * shots
-    with ThreadPoolExecutor(max_workers=shots) as executor:
-        futures = {executor.submit(call_gemini, prompt, resolution, aspect_ratio, attachments, model): i for i in range(shots)}
+    # OpenAI chokes on parallel bursts: one shot at a time
+    with ThreadPoolExecutor(max_workers=1 if is_openai else shots) as executor:
+        futures = {executor.submit(call): i for i in range(shots)}
         for future in as_completed(futures):
             idx = futures[future]
             images[idx] = future.result()

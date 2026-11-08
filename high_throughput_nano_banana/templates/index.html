@@ -196,6 +196,9 @@
       grid-template-columns: repeat(var(--cols, 3), 1fr);
       gap: 10px; flex: 1;
     }
+    .shots-col { flex: 1; align-self: stretch; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+    .shots-col .shots-grid { flex: none; }
+    .grid-title { font-size: 0.7rem; color: var(--text-muted); }
 
     .cell {
       background: var(--bg-cell); border: 1px solid var(--border-cell); border-radius: 10px;
@@ -278,15 +281,36 @@
 
     <label class="section-label">Settings</label>
     <div class="row">
-      <select id="model">
+      <select id="gemini-model" title="Gemini model">
+        <option value="">Gemini: none</option>
         <option value="gemini-3-pro-image-preview" selected>Nano Banana Pro</option>
         <option value="gemini-3.1-flash-image-preview">Nano Banana 2</option>
         <option value="gemini-2.5-flash-image">Nano Banana</option>
       </select>
-      <select id="resolution">
-        <option value="1K">1K</option>
-        <option value="2K">2K</option>
-        <option value="4K">4K</option>
+      <select id="openai-model" title="OpenAI model">
+        <option value="" selected>OpenAI: none</option>
+        <option value="gpt-image-2.5-flare">GPT Image 2.5 Flare</option>
+        <option value="gpt-image-2.5-sunburst">GPT Image 2.5 Sunburst</option>
+        <option value="gpt-image-2">GPT Image 2</option>
+        <option value="gpt-image-1">GPT Image 1</option>
+        <option value="gpt-image-1-mini">GPT Image 1 Mini</option>
+      </select>
+      <select id="resolution" title="Gemini resolution">
+        <option value="1K">Gemini: 1K</option>
+        <option value="2K">Gemini: 2K</option>
+        <option value="4K">Gemini: 4K</option>
+      </select>
+      <select id="openai-size" title="OpenAI size">
+        <option value="auto" selected>OpenAI: Auto</option>
+        <option value="1024x1024">OpenAI: 1024×1024</option>
+        <option value="1536x1024">OpenAI: 1536×1024</option>
+        <option value="1024x1536">OpenAI: 1024×1536</option>
+        <option value="1440x480">OpenAI: 1440×480 sm 3:1 (img-2+)</option>
+        <option value="480x1440">OpenAI: 480×1440 sm 1:3 (img-2+)</option>
+        <option value="3072x1024">OpenAI: 3072×1024 md 3:1 (img-2+)</option>
+        <option value="1024x3072">OpenAI: 1024×3072 md 1:3 (img-2+)</option>
+        <option value="3840x1280">OpenAI: 3840×1280 max 3:1 (img-2+)</option>
+        <option value="1280x3840">OpenAI: 1280×3840 max 1:3 (img-2+)</option>
       </select>
       <select id="shots">
         <option value="1">1 shot</option>
@@ -308,10 +332,6 @@
         <option value="9:16">9:16 Vertical</option>
         <option value="4:5">4:5 Social</option>
         <option value="5:4">5:4</option>
-        <option value="4:1">4:1 Banner</option>
-        <option value="1:4">1:4 Tall Banner</option>
-        <option value="8:1">8:1 Strip</option>
-        <option value="1:8">1:8 Tall Strip</option>
       </select>
       <button class="gen-btn" id="gen-btn" onclick="generateAll()">Generate</button>
       <button class="stop-btn" id="stop-btn" onclick="stopGeneration()" style="display:none">Stop</button>
@@ -451,7 +471,14 @@
       if (prompts.length === 0) { showToast("enter at least one prompt"); return; }
       if (styles.length === 0) { showToast("load a style directory or upload images first"); return; }
 
+      const models = ["gemini-model", "openai-model"]
+        .map(id => document.getElementById(id).selectedOptions[0])
+        .filter(o => o.value)
+        .map(o => ({ id: o.value, label: o.textContent }));
+      if (models.length === 0) { showToast("select at least one model"); return; }
+
       const resolution = document.getElementById("resolution").value;
+      const openaiSize = document.getElementById("openai-size").value;
       const aspectRatio = document.getElementById("aspect-ratio").value;
       const shots = parseInt(document.getElementById("shots").value);
       const total = prompts.length * styles.length;
@@ -480,9 +507,14 @@
               <img src="${styles[si].thumbUrl}">
               <span>${styles[si].filename}</span>
             </div>
-            <div class="shots-grid" style="--cols:${gridCols(shots)}">
-              ${Array.from({length: shots}, (_, i) => `
-                <div class="cell"><span class="cell-label">shot ${i+1}</span><span style="color:var(--text-pending);font-size:0.8rem">pending</span></div>
+            <div class="shots-col">
+              ${models.map((m, mi) => `
+                ${models.length > 1 ? `<div class="grid-title">${escHtml(m.label)}</div>` : ""}
+                <div class="shots-grid" id="sg-${pi}-${si}-${mi}" style="--cols:${gridCols(shots)}">
+                  ${Array.from({length: shots}, (_, i) => `
+                    <div class="cell"><span class="cell-label">shot ${i+1}</span><span style="color:var(--text-pending);font-size:0.8rem">pending</span></div>
+                  `).join("")}
+                </div>
               `).join("")}
             </div>`;
           group.appendChild(row);
@@ -502,35 +534,35 @@
           // Show spinners for current task
           setTaskLoading(pi, si, shots);
 
-          try {
-            abortController = new AbortController();
-            const res = await fetch("/generate", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                prompt: prompts[pi],
-                stylePath: styles[si].path || "",
-                styleData: styles[si].data ? { mimeType: styles[si].mimeType, data: styles[si].data } : null,
-                model: document.getElementById("model").value,
-                resolution,
-                aspectRatio,
-                shots,
-              }),
-              signal: abortController.signal,
-            });
-            const data = await res.json();
-            if (!res.ok) {
-              renderTaskError(pi, si, shots, data.error || "server error");
-            } else {
-              renderTaskResult(pi, si, data.images, prompts[pi], styles[si].filename);
+          // Selected providers run side by side; each grid fills in as its request lands
+          abortController = new AbortController();
+          await Promise.all(models.map(async (m, mi) => {
+            try {
+              const res = await fetch("/generate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  prompt: prompts[pi],
+                  stylePath: styles[si].path || "",
+                  styleData: styles[si].data ? { mimeType: styles[si].mimeType, data: styles[si].data } : null,
+                  model: m.id,
+                  resolution,
+                  openaiSize,
+                  aspectRatio,
+                  shots,
+                }),
+                signal: abortController.signal,
+              });
+              const data = await res.json();
+              if (!res.ok) {
+                renderTaskError(pi, si, mi, shots, data.error || "server error");
+              } else {
+                renderTaskResult(pi, si, mi, data.images, prompts[pi], styles[si].filename);
+              }
+            } catch (e) {
+              renderTaskError(pi, si, mi, shots, stopped ? "stopped" : "network error");
             }
-          } catch (e) {
-            if (stopped) {
-              renderTaskError(pi, si, shots, "stopped");
-            } else {
-              renderTaskError(pi, si, shots, "network error");
-            }
-          }
+          }));
         }
         if (stopped) break;
       }
@@ -560,23 +592,23 @@
     function setTaskLoading(pi, si, shots) {
       const row = document.getElementById(`sr-${pi}-${si}`);
       if (!row) return;
-      const grid = row.querySelector(".shots-grid");
-      grid.innerHTML = Array.from({length: shots}, (_, i) =>
-        `<div class="cell"><span class="cell-label">shot ${i+1}</span><div class="spinner"></div></div>`
-      ).join("");
+      row.querySelectorAll(".shots-grid").forEach(grid => {
+        grid.innerHTML = Array.from({length: shots}, (_, i) =>
+          `<div class="cell"><span class="cell-label">shot ${i+1}</span><div class="spinner"></div></div>`
+        ).join("");
+      });
       row.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
 
-    function renderTaskResult(pi, si, images, prompt, styleName) {
-      const row = document.getElementById(`sr-${pi}-${si}`);
-      if (!row) return;
-      const grid = row.querySelector(".shots-grid");
+    function renderTaskResult(pi, si, mi, images, prompt, styleName) {
+      const grid = document.getElementById(`sg-${pi}-${si}-${mi}`);
+      if (!grid) return;
       grid.style.setProperty("--cols", gridCols(images.length));
       grid.innerHTML = images.map((src, i) => {
         if (!src) {
           return `<div class="cell"><span class="cell-label">shot ${i+1}</span><span class="fail-msg">generation failed</span></div>`;
         }
-        const safeId = `img-${pi}-${si}-${i}`;
+        const safeId = `img-${pi}-${si}-${mi}-${i}`;
         return `<div class="cell">
           <span class="cell-label">shot ${i+1}</span>
           <div class="cell-img-wrap">
@@ -587,10 +619,9 @@
       }).join("");
     }
 
-    function renderTaskError(pi, si, shots, msg) {
-      const row = document.getElementById(`sr-${pi}-${si}`);
-      if (!row) return;
-      const grid = row.querySelector(".shots-grid");
+    function renderTaskError(pi, si, mi, shots, msg) {
+      const grid = document.getElementById(`sg-${pi}-${si}-${mi}`);
+      if (!grid) return;
       grid.innerHTML = Array.from({length: shots}, (_, i) =>
         `<div class="cell"><span class="cell-label">shot ${i+1}</span><span class="fail-msg">${escHtml(msg)}</span></div>`
       ).join("");

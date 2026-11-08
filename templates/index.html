@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Nano Banana Pro — Image Gen</title>
+  <title>Image Gen — Gemini + OpenAI</title>
   <style>
     :root {
       --bg: #0f0f0f; --bg-input: #1a1a1a; --bg-cell: #1a1a1a;
@@ -69,6 +69,11 @@
       gap: 12px;
     }
 
+    .prompt-wrap {
+      position: relative;
+      width: 100%;
+    }
+
     textarea {
       width: 100%;
       background: var(--bg-input);
@@ -76,7 +81,7 @@
       border-radius: 8px;
       color: var(--text);
       font-size: 0.95rem;
-      padding: 12px 14px;
+      padding: 12px 36px 12px 14px;
       resize: vertical;
       min-height: 90px;
       outline: none;
@@ -85,10 +90,78 @@
     textarea:focus { border-color: var(--border-focus); }
     textarea::placeholder { color: var(--text-muted); }
 
+    .history-toggle {
+      position: absolute;
+      top: 10px;
+      right: 8px;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 1rem;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+      transition: color 0.15s;
+      z-index: 2;
+    }
+    .history-toggle:hover { color: var(--text); }
+
+    .history-dropdown {
+      display: none;
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      max-height: 320px;
+      overflow-y: auto;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 0 0 8px 8px;
+      z-index: 50;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    }
+    .history-dropdown.open { display: block; }
+
+    .history-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 8px 14px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border-cell);
+      transition: background 0.1s;
+      gap: 12px;
+    }
+    .history-item:last-child { border-bottom: none; }
+    .history-item:hover { background: var(--bg-save-hover); }
+
+    .history-prompt {
+      font-size: 0.85rem;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex: 1;
+      min-width: 0;
+    }
+    .history-meta {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .history-empty {
+      padding: 16px 14px;
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      text-align: center;
+    }
+
     .row {
       display: flex;
       gap: 10px;
       align-items: center;
+      flex-wrap: wrap;
     }
 
     select {
@@ -119,14 +192,42 @@
     button#gen-btn:disabled { opacity: 0.35; cursor: not-allowed; }
     button#gen-btn:not(:disabled):hover { opacity: 0.85; }
 
-    /* Results grid */
-    .grid {
+    button#stop-btn {
+      background: #b3382c;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      padding: 10px 24px;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    button#stop-btn:hover { opacity: 0.85; }
+
+    .results {
       width: 100%;
       max-width: 1320px;
+      margin-top: 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+
+    .provider-group h3 {
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-sub);
+      margin-bottom: 10px;
+    }
+
+    .grid {
+      width: 100%;
       display: grid;
       grid-template-columns: repeat(var(--cols, 3), 1fr);
       gap: 16px;
-      margin-top: 40px;
     }
 
     .cell {
@@ -194,7 +295,6 @@
       padding: 12px;
     }
 
-    /* Spinner */
     .spinner {
       width: 28px;
       height: 28px;
@@ -205,7 +305,6 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* Toast */
     #toast {
       position: fixed;
       bottom: 24px;
@@ -221,8 +320,161 @@
       white-space: nowrap;
     }
     #toast.show { transform: translateX(-50%) translateY(0); }
+    #toast.info { background: #444; }
 
-    /* Attachment area */
+    .cell-note {
+      width: 100%;
+      background: rgba(230, 160, 30, 0.12);
+      color: #b07a1a;
+      font-size: 0.72rem;
+      padding: 6px 10px;
+      max-height: 64px;
+      overflow-y: auto;
+      border-top: 1px solid var(--border-cell);
+    }
+
+    .save-all {
+      background: var(--bg-save);
+      border: 1px solid var(--border-cell);
+      border-radius: 6px;
+      color: var(--text-save);
+      font-size: 0.72rem;
+      padding: 3px 10px;
+      margin-left: 10px;
+      cursor: pointer;
+      text-transform: none;
+      letter-spacing: 0;
+      transition: background 0.15s, color 0.15s;
+    }
+    .save-all:hover { background: var(--bg-save-hover); color: var(--text-heading); }
+    .save-all:disabled { opacity: 0.4; cursor: default; }
+
+    .attach-meta {
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      user-select: none;
+      margin-left: auto;
+      white-space: nowrap;
+    }
+    .attach-clear {
+      background: none;
+      border: none;
+      color: var(--text-save);
+      font-size: 0.75rem;
+      cursor: pointer;
+      text-decoration: underline;
+      padding: 0 0 0 8px;
+    }
+    .attach-clear:hover { color: var(--text-heading); }
+
+    .runs-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .runs-label {
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-sub);
+      flex-shrink: 0;
+    }
+    .run-chip {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-save);
+      font-size: 0.75rem;
+      padding: 5px 10px;
+      cursor: pointer;
+      max-width: 180px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .run-chip:hover { border-color: var(--border-focus); color: var(--text-heading); }
+    .run-chip .n-att { color: var(--text-muted); }
+
+    .console-panel {
+      width: 100%;
+      max-width: 720px;
+      margin-top: 14px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .console-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 12px;
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-sub);
+      border-bottom: 1px solid var(--border-cell);
+    }
+    .console-head button {
+      background: none; border: none; cursor: pointer;
+      color: var(--text-save); font-size: 0.72rem; text-decoration: underline;
+    }
+    .console-head button:hover { color: var(--text-heading); }
+    #console-log {
+      margin: 0;
+      padding: 8px 12px;
+      height: 150px;
+      overflow-y: auto;
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 0.72rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: var(--text-save);
+    }
+    #console-log .warn { color: #b07a1a; }
+    #console-log .err { color: #c0392b; }
+    #console-log .time { color: var(--text-muted); }
+
+    .cell-progress {
+      width: 70%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+    .cell-progress .bar {
+      width: 100%;
+      height: 6px;
+      background: var(--spinner-ring);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .cell-progress .fill {
+      height: 100%;
+      width: 35%;
+      background: var(--spinner-top);
+      border-radius: 3px;
+      transform: translateX(-100%);
+    }
+    .cell-progress.running .fill { animation: slide 1.2s ease-in-out infinite; }
+    @keyframes slide {
+      from { transform: translateX(-100%); }
+      to { transform: translateX(286%); }
+    }
+    .cell-progress .pct {
+      font-size: 0.74rem;
+      color: var(--text-save);
+      font-variant-numeric: tabular-nums;
+    }
+    .cell-progress .elapsed {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+    }
+
     .attach-zone {
       border: 1px dashed var(--attach-border);
       border-radius: 8px;
@@ -243,6 +495,18 @@
       font-size: 0.82rem;
       user-select: none;
     }
+
+    .resize-toggle {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      color: var(--text-muted);
+      font-size: 0.78rem;
+      user-select: none;
+      cursor: pointer;
+    }
+    .resize-toggle input { accent-color: #cc7722; }
 
     .thumb-wrap {
       position: relative;
@@ -280,31 +544,65 @@
 
   <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">&#x263D;&#xfe0e;</button>
 
-  <h1>Nano Banana Pro</h1>
-  <p class="subtitle">multi-shot image generation</p>
+  <h1>Image Gen</h1>
+  <p class="subtitle">Gemini + OpenAI · multi-shot</p>
 
   <div class="controls">
-    <textarea id="prompt" placeholder="describe the image you want…" autofocus></textarea>
+    <div class="prompt-wrap">
+      <textarea id="prompt" placeholder="describe the image you want…" autofocus></textarea>
+      <button class="history-toggle" id="history-toggle" onclick="toggleHistory()" title="Prompt history">&#x25BE;</button>
+      <div class="history-dropdown" id="history-dropdown"></div>
+    </div>
 
-    <!-- Image attachment drop zone -->
     <div class="attach-zone" id="attach-zone" onclick="document.getElementById('file-input').click()"
          ondragover="event.preventDefault(); this.classList.add('drag-over')"
          ondragleave="this.classList.remove('drag-over')"
          ondrop="handleDrop(event)">
       <input type="file" id="file-input" accept="image/*" multiple onchange="handleFiles(this.files)">
       <span class="attach-hint" id="attach-hint">+ attach images (click or drag &amp; drop)</span>
+      <label class="resize-toggle" onclick="event.stopPropagation()">
+        <input type="checkbox" id="resize-attachments" checked> resize oversized
+      </label>
+    </div>
+
+    <div class="runs-row" id="runs-row" hidden>
+      <span class="runs-label">recent runs</span>
+      <div id="runs-list" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
     </div>
 
     <div class="row">
-      <select id="model">
-        <option value="gemini-3-pro-image-preview" selected>Nano Banana Pro</option>
-        <option value="gemini-3.1-flash-image-preview">Nano Banana 2</option>
+      <select id="gemini-model" title="Gemini model">
+        <option value="">Gemini: none</option>
+        <option value="gemini-nano-banana-2.1" selected>Nano Banana 2.1</option>
+        <option value="gemini-3-pro-image">Nano Banana Pro</option>
+        <option value="gemini-3.1-flash-image">Nano Banana 2</option>
+        <option value="gemini-3.1-flash-lite-image">Nano Banana 2 Lite (1K only)</option>
         <option value="gemini-2.5-flash-image">Nano Banana</option>
       </select>
-      <select id="resolution">
-        <option value="1K">1K</option>
-        <option value="2K">2K</option>
-        <option value="4K">4K</option>
+      <select id="openai-model" title="OpenAI model">
+        <option value="" selected>OpenAI: none</option>
+        <option value="gpt-image-2.5-flare">GPT Image 2.5 Flare</option>
+        <option value="gpt-image-2.5-sunburst">GPT Image 2.5 Sunburst</option>
+        <option value="gpt-image-2">GPT Image 2</option>
+        <option value="gpt-image-1">GPT Image 1</option>
+        <option value="gpt-image-1-mini">GPT Image 1 Mini</option>
+      </select>
+      <select id="resolution" title="Gemini resolution">
+        <option value="1K">Gemini: 1K</option>
+        <option value="2K">Gemini: 2K</option>
+        <option value="4K">Gemini: 4K</option>
+      </select>
+      <select id="openai-size" title="OpenAI size">
+        <option value="auto" selected>OpenAI: Auto</option>
+        <option value="1024x1024">OpenAI: 1024×1024</option>
+        <option value="1536x1024">OpenAI: 1536×1024</option>
+        <option value="1024x1536">OpenAI: 1024×1536</option>
+        <option value="1440x480">OpenAI: 1440×480 sm 3:1 (img-2+)</option>
+        <option value="480x1440">OpenAI: 480×1440 sm 1:3 (img-2+)</option>
+        <option value="3072x1024">OpenAI: 3072×1024 md 3:1 (img-2+)</option>
+        <option value="1024x3072">OpenAI: 1024×3072 md 1:3 (img-2+)</option>
+        <option value="3840x1280">OpenAI: 3840×1280 max 3:1 (img-2+)</option>
+        <option value="1280x3840">OpenAI: 1280×3840 max 1:3 (img-2+)</option>
       </select>
       <select id="shots">
         <option value="1">1 shot</option>
@@ -326,25 +624,31 @@
         <option value="9:16">9:16 — Vertical</option>
         <option value="4:5">4:5 — Social</option>
         <option value="5:4">5:4</option>
-        <option value="4:1">4:1 — Banner</option>
-        <option value="1:4">1:4 — Tall Banner</option>
-        <option value="8:1">8:1 — Strip</option>
-        <option value="1:8">1:8 — Tall Strip</option>
       </select>
       <button id="gen-btn" onclick="generate()">Generate</button>
+      <button id="stop-btn" onclick="stopGenerate()" hidden>Stop</button>
     </div>
   </div>
 
-  <div class="grid" id="grid" style="--cols:3">
-    <div class="cell"><span class="placeholder">shot 1</span></div>
-    <div class="cell"><span class="placeholder">shot 2</span></div>
-    <div class="cell"><span class="placeholder">shot 3</span></div>
+  <div class="console-panel">
+    <div class="console-head"><span>console</span><button onclick="clearConsole()">clear</button></div>
+    <pre id="console-log"></pre>
+  </div>
+
+  <div class="results" id="results">
+    <div class="provider-group" id="gemini-group" hidden>
+      <h3>Gemini · <span class="model-name"></span><button class="save-all" onclick="saveAll('gemini')" hidden>save all ↓</button></h3>
+      <div class="grid"></div>
+    </div>
+    <div class="provider-group" id="openai-group" hidden>
+      <h3>OpenAI · <span class="model-name"></span><button class="save-all" onclick="saveAll('openai')" hidden>save all ↓</button></h3>
+      <div class="grid"></div>
+    </div>
   </div>
 
   <div id="toast"></div>
 
   <script>
-    // --- Theme ---
     function toggleTheme() {
       const html = document.documentElement;
       const next = html.getAttribute("data-theme") === "light" ? "" : "light";
@@ -361,31 +665,92 @@
       }
     })();
 
-    const grid = document.getElementById("grid");
-    const btn  = document.getElementById("gen-btn");
+    const btn = document.getElementById("gen-btn");
 
-    // --- Attachments ---
-    let attachments = []; // [{mimeType, data, objectURL}]
+    const MAX_FILES = 14, MAX_FILE_MB = 7, MAX_TOTAL_MB = 20, MAX_DIM = 6336;
+    const MB = 1048576;
+    const fmtMB = b => `${(b / MB).toFixed(1)}MB`;
+    const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
-    function fileToBase64(file) {
+    const logEl = document.getElementById("console-log");
+    function uiLog(msg, level) {
+      const t = new Date().toTimeString().slice(0, 8);
+      const line = document.createElement("div");
+      if (level) line.className = level;
+      line.innerHTML = `<span class="time">${t}</span> ${esc(msg)}`;
+      logEl.appendChild(line);
+      logEl.scrollTop = logEl.scrollHeight;
+      (level === "err" ? console.error : level === "warn" ? console.warn : console.log)(msg);
+    }
+    function clearConsole() { logEl.innerHTML = ""; }
+
+    let attachments = [];
+
+    function readB64(file) {
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = () => {
-          // result is "data:image/png;base64,XXXX" — strip the prefix
-          const b64 = reader.result.split(",")[1];
-          resolve({ mimeType: file.type, data: b64, objectURL: URL.createObjectURL(file) });
-        };
+        reader.onload = () => resolve(reader.result.split(",")[1]);
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
     }
 
-    async function handleFiles(files) {
-      for (const file of files) {
-        if (!file.type.startsWith("image/")) continue;
-        const att = await fileToBase64(file);
-        attachments.push(att);
+    // Downscale/re-encode oversized files so the API gets clean inputs.
+    async function prepFile(file) {
+      const resizeOK = document.getElementById("resize-attachments").checked;
+      const bitmap = await createImageBitmap(file).catch(() => null);
+      const needResize = bitmap && Math.max(bitmap.width, bitmap.height) > MAX_DIM;
+      const tooBig = file.size > MAX_FILE_MB * MB;
+      if (!resizeOK && (needResize || tooBig)) {
+        uiLog(`[attach] ${file.name} kept as-is (resize off)${tooBig ? ` — ${fmtMB(file.size)} exceeds ${MAX_FILE_MB}MB, server may reject` : ""}`, tooBig ? "warn" : undefined);
       }
+      if (resizeOK && bitmap && (needResize || tooBig)) {
+        const scale = Math.min(1, MAX_DIM / Math.max(bitmap.width, bitmap.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(bitmap.width * scale);
+        canvas.height = Math.round(bitmap.height * scale);
+        canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        let mime = file.type === "image/png" ? "image/png" : "image/jpeg";
+        let dataURL = canvas.toDataURL(mime, 0.9);
+        if (mime === "image/png" && dataURL.length * 0.75 > MAX_FILE_MB * MB) {
+          mime = "image/jpeg";
+          dataURL = canvas.toDataURL(mime, 0.9);
+        }
+        const b64 = dataURL.split(",")[1];
+        const newSize = Math.round(b64.length * 0.75);
+        uiLog(`[attach] resized ${file.name}: ${bitmap.width}×${bitmap.height} ${fmtMB(file.size)} → ${canvas.width}×${canvas.height} ${fmtMB(newSize)} (${mime})`);
+        showToast(`resized ${file.name}: ${fmtMB(file.size)} → ${fmtMB(newSize)}`, true);
+        return { name: file.name, mimeType: mime, data: b64, size: newSize, objectURL: URL.createObjectURL(file) };
+      }
+      const b64 = await readB64(file);
+      uiLog(`[attach] added ${file.name}: ${fmtMB(file.size)} (${file.type})`);
+      return { name: file.name, mimeType: file.type, data: b64, size: file.size, objectURL: URL.createObjectURL(file) };
+    }
+
+    function totalAttachBytes() { return attachments.reduce((s, a) => s + a.size, 0); }
+
+    async function handleFiles(files) {
+      const skipped = [];
+      for (const file of [...files]) {
+        if (!file.type.startsWith("image/")) { skipped.push(`${file.name} (not an image)`); continue; }
+        if (attachments.some(a => a.name === file.name && a.size === file.size)) { skipped.push(`${file.name} (duplicate)`); continue; }
+        if (attachments.length >= MAX_FILES) { skipped.push(`${file.name} (max ${MAX_FILES} files)`); continue; }
+        try {
+          attachments.push(await prepFile(file));
+        } catch (e) {
+          skipped.push(`${file.name} (unreadable)`);
+          uiLog(`[attach] failed to read ${file.name}`, "warn");
+        }
+        renderThumbs();
+      }
+      if (skipped.length) {
+        uiLog(`[attach] skipped: ${skipped.join(", ")}`, "warn");
+        showToast(`skipped ${skipped.length}: ${skipped.join(", ")}`.slice(0, 120));
+      }
+      if (totalAttachBytes() > MAX_TOTAL_MB * MB) {
+        showToast(`attachments total ${fmtMB(totalAttachBytes())} — over ${MAX_TOTAL_MB}MB limit, remove some`);
+      }
+      uiLog(`[attach] state: ${attachments.length} files, ${fmtMB(totalAttachBytes())} total`);
       renderThumbs();
     }
 
@@ -397,113 +762,509 @@
 
     function removeAttachment(idx) {
       URL.revokeObjectURL(attachments[idx].objectURL);
+      uiLog(`[attach] removed ${attachments[idx].name}`);
       attachments.splice(idx, 1);
+      renderThumbs();
+    }
+
+    function clearAttachments() {
+      attachments.forEach(a => URL.revokeObjectURL(a.objectURL));
+      attachments = [];
+      uiLog("[attach] cleared all");
       renderThumbs();
     }
 
     function renderThumbs() {
       const zone = document.getElementById("attach-zone");
       const hint = document.getElementById("attach-hint");
-      // remove old thumbs
-      zone.querySelectorAll(".thumb-wrap").forEach(el => el.remove());
+      zone.querySelectorAll(".thumb-wrap, .attach-meta").forEach(el => el.remove());
       hint.style.display = attachments.length ? "none" : "";
       attachments.forEach((att, i) => {
         const wrap = document.createElement("div");
         wrap.className = "thumb-wrap";
+        wrap.title = `${att.name} · ${fmtMB(att.size)}`;
         wrap.innerHTML = `<img src="${att.objectURL}">
           <button class="thumb-remove" onclick="event.stopPropagation(); removeAttachment(${i})">✕</button>`;
         zone.appendChild(wrap);
       });
-    }
-
-    // --- UI helpers ---
-    function getShots() { return parseInt(document.getElementById("shots").value); }
-    function gridCols(n) { return n <= 3 ? n : n <= 4 ? 2 : 3; }
-
-    function setLoading(yes) {
-      btn.disabled = yes;
-      btn.textContent = yes ? "Generating…" : "Generate";
-      if (yes) {
-        const n = getShots();
-        grid.style.setProperty("--cols", gridCols(n));
-        grid.innerHTML = Array.from({length: n}, (_, i) => `
-          <div class="cell">
-            <span class="cell-label">shot ${i+1}</span>
-            <div class="spinner"></div>
-          </div>`).join("");
+      if (attachments.length) {
+        const total = totalAttachBytes();
+        const over = total > MAX_TOTAL_MB * MB;
+        const meta = document.createElement("span");
+        meta.className = "attach-meta";
+        meta.innerHTML = `${attachments.length}/${MAX_FILES} · <span style="${over ? 'color:#c0392b' : ''}">${fmtMB(total)}</span>
+          <button class="attach-clear" onclick="event.stopPropagation(); clearAttachments()">clear all</button>`;
+        zone.appendChild(meta);
       }
     }
 
-    function showToast(msg) {
+    const LEGACY_GEMINI = { "gemini-3-pro-image-preview": "gemini-3-pro-image", "gemini-3.1-flash-image-preview": "gemini-3.1-flash-image" };
+    const geminiId = m => LEGACY_GEMINI[m] || m || "";
+
+    function getShots() { return parseInt(document.getElementById("shots").value); }
+    function gridCols(n) { return n <= 3 ? n : n <= 4 ? 2 : 3; }
+    function modelLabel(selectId, value) {
+      if (!value) return "";
+      const opt = document.querySelector(`#${selectId} option[value="${value}"]`);
+      return opt ? opt.textContent : value;
+    }
+
+    // Rough seconds per image — drives the progress bars (the services don't
+    // report mid-image progress, so this is an estimate; bars cap at ~95%).
+    function estimateFor(provider, model, resolution) {
+      if (provider === "gemini") {
+        const table = model.includes("pro") ? { "1K": 30, "2K": 45, "4K": 75 } : { "1K": 12, "2K": 15, "4K": 20 };
+        return table[resolution] || 30;
+      }
+      return model.includes("mini") ? 30 : 60;
+    }
+
+    let pending = {};        // "provider-index" -> {start, est} — only the shot currently running
+    let queueState = {};     // provider -> {est, n} — so the next shot's timer starts when its turn comes
+    let progressTimer = null;
+
+    function tickProgress() {
+      for (const key in pending) {
+        const { start, est } = pending[key];
+        const cell = document.getElementById(`cell-${key}`);
+        if (!cell) continue;
+        const sec = Math.floor((performance.now() - start) / 1000);
+        const stat = cell.querySelector(".pct");
+        const elapsed = cell.querySelector(".elapsed");
+        if (elapsed) elapsed.textContent = `${sec}s`;
+        if (stat) stat.textContent = sec <= est ? `working — usually ~${est}s` : `running long — usually ~${est}s`;
+      }
+    }
+
+    function setLoading(yes, geminiModel, openaiModel, resolution) {
+      btn.disabled = yes;
+      btn.textContent = yes ? "Generating…" : "Generate";
+      document.getElementById("stop-btn").hidden = !yes;
+      if (!yes) {
+        clearInterval(progressTimer);
+        progressTimer = null;
+        pending = {};
+        queueState = {};
+        return;
+      }
+      const n = getShots();
+      pending = {};
+      queueState = {};
+      ["gemini", "openai"].forEach(p => {
+        const group = document.getElementById(`${p}-group`);
+        const model = p === "gemini" ? geminiModel : openaiModel;
+        const grid = group.querySelector(".grid");
+        if (!model) {
+          group.hidden = true;
+          grid.innerHTML = "";
+          return;
+        }
+        group.hidden = false;
+        group.querySelector(".save-all").hidden = true;
+        group.querySelector(".model-name").textContent = modelLabel(`${p}-model`, model);
+        grid.style.setProperty("--cols", gridCols(n));
+        // Shots run one at a time: only the running shot animates and counts;
+        // each next shot starts when the one before it finishes.
+        const est = estimateFor(p, model, resolution);
+        grid.innerHTML = Array.from({length: n}, (_, i) => `
+          <div class="cell" id="cell-${p}-${i}">
+            <span class="cell-label">shot ${i+1}</span>
+            <div class="cell-img-wrap">
+              <div class="cell-progress${i === 0 ? " running" : ""}">
+                <div class="pct">${i === 0 ? `working — usually ~${est}s` : "queued"}</div>
+                <div class="bar"><div class="fill"></div></div>
+                <div class="elapsed">${i === 0 ? "0s" : "—"}</div>
+              </div>
+            </div>
+          </div>`).join("");
+        queueState[p] = { est, n };
+        pending[`${p}-0`] = { start: performance.now(), est };
+      });
+      progressTimer = setInterval(tickProgress, 250);
+    }
+
+    function showToast(msg, info) {
       const t = document.getElementById("toast");
       t.textContent = msg;
+      t.classList.toggle("info", !!info);
       t.classList.add("show");
       setTimeout(() => t.classList.remove("show"), 3500);
     }
 
-    function renderImages(images) {
-      grid.style.setProperty("--cols", gridCols(images.length));
-      grid.innerHTML = images.map((src, i) => {
-        if (!src) {
-          return `<div class="cell">
-            <span class="cell-label">shot ${i+1}</span>
-            <span class="fail-msg">generation failed</span>
-          </div>`;
-        }
-        return `<div class="cell">
-          <span class="cell-label">shot ${i+1}</span>
-          <div class="cell-img-wrap">
-            <img src="${src}" alt="shot ${i+1}" onclick="window.open('${src}','_blank')" title="click to open full size">
-          </div>
-          <button class="save-btn" onclick="saveImage('${src}', ${i+1})">save image</button>
-        </div>`;
-      }).join("");
+    let lastResults = {};   // provider -> {model, images, errors, notes}
+    let lastPrompt = "";
+
+    function hideGroup(provider) {
+      const group = document.getElementById(`${provider}-group`);
+      group.hidden = true;
+      group.querySelector(".grid").innerHTML = "";
+      lastResults[provider] = null;
     }
 
-    // --- Generate ---
+    // One streamed result arrived — swap its progress cell for the image/error.
+    function fillCell(evt) {
+      const { provider, index } = evt;
+      delete pending[`${provider}-${index}`];
+      // This provider's next queued shot is now running — start its timer.
+      const qs = queueState[provider];
+      const nextCell = qs && index + 1 < qs.n && document.getElementById(`cell-${provider}-${index + 1}`);
+      if (nextCell) {
+        pending[`${provider}-${index + 1}`] = { start: performance.now(), est: qs.est };
+        const prog = nextCell.querySelector(".cell-progress");
+        if (prog) {
+          prog.classList.add("running");
+          prog.querySelector(".pct").textContent = `working — usually ~${qs.est}s`;
+          prog.querySelector(".elapsed").textContent = "0s";
+        }
+      }
+      const info = lastResults[provider];
+      if (info) {
+        info.images[index] = evt.image || null;
+        info.errors[index] = evt.error || null;
+        info.notes[index]  = evt.note || null;
+      }
+      const cell = document.getElementById(`cell-${provider}-${index}`);
+      if (!cell) return;
+      if (!evt.image) {
+        const reason = evt.error || "generation failed";
+        uiLog(`[result] ${provider} shot ${index + 1} failed: ${reason}`, "err");
+        cell.innerHTML = `<span class="cell-label">shot ${index + 1}</span>
+          <span class="fail-msg" title="${esc(reason)}">${esc(reason)}</span>`;
+        return;
+      }
+      if (evt.note) uiLog(`[result] ${provider} shot ${index + 1} warning: ${evt.note}`, "warn");
+      else uiLog(`[result] ${provider} shot ${index + 1} done`);
+      cell.innerHTML = `<span class="cell-label">shot ${index + 1}</span>
+        <div class="cell-img-wrap">
+          <img src="${evt.image}" alt="${provider} shot ${index + 1}" onclick="openImage('${provider}', ${index})" title="click to open full size">
+        </div>
+        ${evt.note ? `<div class="cell-note" title="${esc(evt.note)}">⚠ ${esc(evt.note)}</div>` : ""}
+        <button class="save-btn" onclick="saveImage('${provider}', ${index})">save image</button>`;
+    }
+
+    function finishProviders() {
+      ["gemini", "openai"].forEach(p => {
+        const info = lastResults[p];
+        if (!info) return;
+        const ok = info.images.filter(Boolean).length;
+        document.querySelector(`#${p}-group .save-all`).hidden = ok < 2;
+      });
+    }
+
+    let genAbort = null;
+
+    function stopGenerate() {
+      if (!genAbort) return;
+      uiLog("[generate] stop requested — dropping stream; server quits after the in-flight shot", "warn");
+      genAbort.abort();
+    }
+
     async function generate() {
       const prompt      = document.getElementById("prompt").value.trim();
+      const geminiModel = document.getElementById("gemini-model").value;
+      const openaiModel = document.getElementById("openai-model").value;
       const resolution  = document.getElementById("resolution").value;
+      const openaiSize  = document.getElementById("openai-size").value;
       const aspectRatio = document.getElementById("aspect-ratio").value;
       const shots       = getShots();
 
       if (!prompt) { showToast("enter a prompt first"); return; }
+      if (!geminiModel && !openaiModel) { showToast("select at least one model"); return; }
+      if (totalAttachBytes() > MAX_TOTAL_MB * MB) {
+        showToast(`attachments total ${fmtMB(totalAttachBytes())} — over ${MAX_TOTAL_MB}MB limit, remove some`);
+        return;
+      }
 
-      setLoading(true);
+      lastPrompt = prompt;
+      saveToHistory(prompt, geminiModel, openaiModel, shots);
+      saveRun({
+        ts: Date.now(), prompt, geminiModel, openaiModel, resolution, openaiSize, aspectRatio, shots,
+        attachments: attachments.map(a => ({ name: a.name, mimeType: a.mimeType, data: a.data, size: a.size })),
+      });
+      setLoading(true, geminiModel, openaiModel, resolution);
+
+      const blank = () => ({ images: Array(shots).fill(null), errors: Array(shots).fill(null), notes: Array(shots).fill(null) });
+      lastResults = {};
+      if (geminiModel) lastResults.gemini = { model: geminiModel, ...blank() };
+      if (openaiModel) lastResults.openai = { model: openaiModel, ...blank() };
+
+      const total = shots * ((geminiModel ? 1 : 0) + (openaiModel ? 1 : 0));
+      let doneCount = 0;
+      uiLog(`[generate] start: shots=${shots} gemini=${geminiModel || "-"} openai=${openaiModel || "-"} res=${resolution} ar=${aspectRatio || "auto"} attachments=${attachments.length} (${fmtMB(totalAttachBytes())})`);
+      const t0 = performance.now();
       try {
         const payload = {
           prompt,
-          model: document.getElementById("model").value,
+          geminiModel,
+          openaiModel,
           resolution,
+          openaiSize,
           aspectRatio,
           shots,
-          attachments: attachments.map(a => ({ mimeType: a.mimeType, data: a.data })),
+          attachments: attachments.map(a => ({ name: a.name, mimeType: a.mimeType, data: a.data })),
         };
+        genAbort = new AbortController();
         const res = await fetch("/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
+          signal: genAbort.signal,
         });
-        const data = await res.json();
-        if (!res.ok) { showToast(data.error || "server error"); return; }
-        renderImages(data.images);
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          const detail = data.problems ? `${data.error}: ${data.problems.join("; ")}` : (data.error || `server error (${res.status})`);
+          uiLog(`[generate] rejected: ${detail}`, "err");
+          showToast(detail.slice(0, 160));
+          hideGroup("gemini");
+          hideGroup("openai");
+          return;
+        }
+        // Results stream in one line per image; fill each cell as it lands.
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          let nl;
+          while ((nl = buf.indexOf("\n")) >= 0) {
+            const line = buf.slice(0, nl).trim();
+            buf = buf.slice(nl + 1);
+            if (!line) continue;
+            const evt = JSON.parse(line);
+            if (evt.done) {
+              uiLog(`[generate] done in ${((performance.now() - t0) / 1000).toFixed(1)}s — ${evt.ok}/${evt.total} images ok`);
+            } else {
+              fillCell(evt);
+              doneCount++;
+              btn.textContent = `Generating… ${doneCount}/${total}`;
+            }
+          }
+        }
+        finishProviders();
       } catch (e) {
-        showToast("network error — is the server running?");
+        if (e.name === "AbortError") {
+          uiLog("[generate] stopped by user");
+          document.querySelectorAll(".cell-progress").forEach(el => {
+            el.classList.remove("running");
+            el.querySelector(".pct").textContent = "stopped";
+          });
+          finishProviders();
+        } else {
+          uiLog("[generate] network error — is the server running?", "err");
+          showToast("network error — is the server running?");
+        }
       } finally {
+        genAbort = null;
         setLoading(false);
       }
     }
 
-    function saveImage(src, n) {
-      const a = document.createElement("a");
-      a.href = src;
-      a.download = `shot-${n}-${Date.now()}.png`;
-      a.click();
+    // --- recent runs: last 5 full submissions (prompt + attachments + selects),
+    // kept in the browser's IndexedDB so big attachments fit and survive reloads.
+    const RUNS_MAX = 5;
+
+    function runsDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open("img-gen", 1);
+        req.onupgradeneeded = () => req.result.createObjectStore("runs", { keyPath: "ts" });
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
     }
+
+    async function saveRun(run) {
+      try {
+        const db = await runsDB();
+        const tx = db.transaction("runs", "readwrite");
+        const store = tx.objectStore("runs");
+        store.put(run);
+        store.getAllKeys().onsuccess = e => {
+          const keys = e.target.result.sort((a, b) => a - b);
+          while (keys.length > RUNS_MAX) store.delete(keys.shift());
+        };
+        await new Promise(r => { tx.oncomplete = r; tx.onerror = r; });
+        renderRuns();
+      } catch (e) {
+        uiLog("[runs] could not save run to browser storage", "warn");
+      }
+    }
+
+    async function getRuns() {
+      try {
+        const db = await runsDB();
+        return await new Promise(resolve => {
+          const req = db.transaction("runs").objectStore("runs").getAll();
+          req.onsuccess = () => resolve(req.result.sort((a, b) => b.ts - a.ts));
+          req.onerror = () => resolve([]);
+        });
+      } catch { return []; }
+    }
+
+    async function renderRuns() {
+      const runs = await getRuns();
+      const row = document.getElementById("runs-row");
+      const list = document.getElementById("runs-list");
+      row.hidden = !runs.length;
+      list.innerHTML = runs.map(r => {
+        const when = new Date(r.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        const att = r.attachments.length ? ` <span class="n-att">·${r.attachments.length}img</span>` : "";
+        return `<button class="run-chip" onclick="loadRun(${r.ts})" title="${esc(r.prompt)}">${when} ${esc(r.prompt.slice(0, 30))}${att}</button>`;
+      }).join("");
+    }
+
+    async function loadRun(ts) {
+      const run = (await getRuns()).find(r => r.ts === ts);
+      if (!run) return;
+      document.getElementById("prompt").value = run.prompt;
+      document.getElementById("gemini-model").value = geminiId(run.geminiModel);
+      document.getElementById("openai-model").value = run.openaiModel;
+      document.getElementById("resolution").value = run.resolution;
+      document.getElementById("openai-size").value = run.openaiSize;
+      const arEl = document.getElementById("aspect-ratio");
+      if ([...arEl.options].some(o => o.value === run.aspectRatio)) {
+        arEl.value = run.aspectRatio;
+      } else {
+        arEl.value = "";
+        if (run.aspectRatio) uiLog(`[runs] shape ${run.aspectRatio} is no longer offered (the image services don't support it) — set to Auto`, "warn");
+      }
+      document.getElementById("shots").value = String(run.shots);
+      attachments.forEach(a => URL.revokeObjectURL(a.objectURL));
+      attachments = run.attachments.map(a => ({
+        ...a,
+        objectURL: URL.createObjectURL(dataURLtoBlob(`data:${a.mimeType};base64,${a.data}`)),
+      }));
+      renderThumbs();
+      uiLog(`[runs] loaded run from ${new Date(ts).toLocaleTimeString()} — edit away, then Generate`);
+      document.getElementById("prompt").focus();
+    }
+
+    function promptSlug() {
+      return (lastPrompt || "image").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "image";
+    }
+
+    function dataURLtoBlob(src) {
+      const comma = src.indexOf(",");
+      const mime = src.slice(5, src.indexOf(";"));
+      const bin = atob(src.slice(comma + 1));
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      return new Blob([arr], { type: mime });
+    }
+
+    function openImage(provider, i) {
+      const src = lastResults[provider] && lastResults[provider].images[i];
+      if (!src) return;
+      window.open(URL.createObjectURL(dataURLtoBlob(src)), "_blank");
+    }
+
+    function saveImage(provider, i) {
+      const src = lastResults[provider] && lastResults[provider].images[i];
+      if (!src) return;
+      const blob = dataURLtoBlob(src);
+      const ext = (blob.type.split("/")[1] || "png").split("+")[0];
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${promptSlug()}-${provider}-${i + 1}.${ext}`;
+      a.click();
+      uiLog(`[save] ${a.download} (${fmtMB(blob.size)})`);
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    }
+
+    // Serial: browsers drop rapid-fire downloads, so space them out.
+    async function saveAll(provider) {
+      const info = lastResults[provider];
+      if (!info) return;
+      const btnEl = document.querySelector(`#${provider}-group .save-all`);
+      btnEl.disabled = true;
+      let n = 0;
+      for (let i = 0; i < info.images.length; i++) {
+        if (!info.images[i]) continue;
+        saveImage(provider, i);
+        n++;
+        btnEl.textContent = `saving ${n}…`;
+        await new Promise(r => setTimeout(r, 500));
+      }
+      btnEl.disabled = false;
+      btnEl.textContent = "save all ↓";
+      uiLog(`[save] ${provider}: saved all ${n}`);
+      showToast(`saved ${n} images`, true);
+    }
+
+    const HISTORY_KEY = "prompt-history";
+    const HISTORY_MAX = 50;
+
+    function getHistory() {
+      try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; }
+      catch { return []; }
+    }
+
+    function saveToHistory(prompt, geminiModel, openaiModel, shots) {
+      let hist = getHistory();
+      hist = hist.filter(h => h.prompt !== prompt);
+      hist.unshift({ prompt, geminiModel, openaiModel, shots, ts: Date.now() });
+      if (hist.length > HISTORY_MAX) hist.length = HISTORY_MAX;
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(hist));
+    }
+
+    function renderHistory() {
+      const dd = document.getElementById("history-dropdown");
+      const hist = getHistory();
+      if (!hist.length) {
+        dd.innerHTML = '<div class="history-empty">no history yet</div>';
+        return;
+      }
+      dd.innerHTML = hist.map((h, i) => {
+        const parts = [];
+        if (h.geminiModel) parts.push(modelLabel("gemini-model", geminiId(h.geminiModel)));
+        if (h.openaiModel) parts.push(modelLabel("openai-model", h.openaiModel));
+        // legacy entries
+        if (!parts.length && h.model) parts.push(modelLabel("gemini-model", h.model) || h.model);
+        const meta = `${parts.join(" + ") || "?"} · ${h.shots}×`;
+        return `<div class="history-item" onclick="applyHistory(${i})">
+          <span class="history-prompt">${h.prompt.replace(/</g,'&lt;')}</span>
+          <span class="history-meta">${meta}</span>
+        </div>`;
+      }).join("");
+    }
+
+    function toggleHistory() {
+      const dd = document.getElementById("history-dropdown");
+      const open = dd.classList.toggle("open");
+      if (open) renderHistory();
+    }
+
+    function applyHistory(idx) {
+      const hist = getHistory();
+      const h = hist[idx];
+      if (!h) return;
+      document.getElementById("prompt").value = h.prompt;
+      const gm = geminiId(h.geminiModel !== undefined ? h.geminiModel : h.model);
+      const om = h.openaiModel || "";
+      const gmEl = document.getElementById("gemini-model");
+      const omEl = document.getElementById("openai-model");
+      if ([...gmEl.options].some(o => o.value === gm)) gmEl.value = gm;
+      if ([...omEl.options].some(o => o.value === om)) omEl.value = om;
+      const shotsEl = document.getElementById("shots");
+      if ([...shotsEl.options].some(o => o.value === String(h.shots))) {
+        shotsEl.value = String(h.shots);
+      }
+      document.getElementById("history-dropdown").classList.remove("open");
+    }
+
+    document.addEventListener("click", e => {
+      const wrap = document.querySelector(".prompt-wrap");
+      if (!wrap.contains(e.target)) {
+        document.getElementById("history-dropdown").classList.remove("open");
+      }
+    });
 
     document.getElementById("prompt").addEventListener("keydown", e => {
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) generate();
     });
+
+    renderRuns();
   </script>
 </body>
 </html>

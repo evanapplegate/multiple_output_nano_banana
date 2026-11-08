@@ -25,7 +25,7 @@ pip install -r requirements.txt
 python server.py
 ```
 
-Runs on `http://localhost:5000` with Flask debug mode enabled.
+Runs on `http://localhost:5050` with Flask debug mode enabled.
 
 ## Architecture
 
@@ -36,4 +36,4 @@ A minimal Flask web app for AI image generation using Google's Gemini API.
   - `POST /generate` — accepts `{prompt, resolution, attachments}` JSON; fires 3 parallel Gemini calls via `ThreadPoolExecutor` and returns `{images: [base64DataURL|null, ...]}` (one per shot)
 - **`templates/index.html`** — single-file vanilla JS frontend; no build step. Handles prompt input, image attachment (drag-and-drop or file picker), resolution selection (1K/2K/4K), and renders the 3-shot results grid with per-image save buttons.
 
-The Gemini model used is `gemini-3-pro-image-preview` via the `generativelanguage.googleapis.com/v1beta` REST API. Attachments are sent as `inlineData` parts alongside the text prompt. Each of the 3 generation calls is independent (no shared state); `null` is returned for any call that fails.
+Gemini models (default `gemini-nano-banana-2.1`, also `gemini-3-pro-image`, `gemini-3.1-flash-image`, `gemini-3.1-flash-lite-image`, `gemini-2.5-flash-image`) are called via the `generativelanguage.googleapis.com/v1beta` REST API. Attachments are sent as `inlineData` parts alongside the text prompt. Each of the 3 generation calls is independent (no shared state); `null` is returned for any call that fails.
